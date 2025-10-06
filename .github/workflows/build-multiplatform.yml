@@ -160,10 +160,6 @@ jobs:
         ls -la "${{ matrix.artifact_name }}"
         file "${{ matrix.artifact_name }}" || true
         
-        # Generate checksums
-        sha256sum "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.sha256"
-        md5sum "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.md5"
-        
         # Create build info
         cat > "${{ matrix.artifact_name }}.info" << EOF
         Platform: ${{ matrix.platform }}
