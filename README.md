@@ -19,7 +19,6 @@
 
 This version includes significant enhancements focused on internationalization and user experience:
 
-
 ### 🌍 **Complete Internationalization**
 - **English Interface**: All French text converted to English for global accessibility
   - Error messages: `"Fichier image non supporté"` → `"Unsupported image file"`
