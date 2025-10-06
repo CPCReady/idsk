@@ -1,0 +1,3 @@
+/Users/david/Downloads/idsk/build/CMakeFiles/iDSK.dir
+/Users/david/Downloads/idsk/build/CMakeFiles/edit_cache.dir
+/Users/david/Downloads/idsk/build/CMakeFiles/rebuild_cache.dir

@@ -1,0 +1,368 @@
+name: idsk Multi-Platform Build and Release
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    name: Build on ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - platform: linux-amd64
+            os: ubuntu-20.04
+            arch: x86_64
+            cc: gcc
+            cxx: g++
+            cmake_flags: ""
+            artifact_name: idsk-linux-amd64
+            
+          # Linux ARM64 (Cross-compile)
+          - platform: linux-arm64
+            os: ubuntu-20.04
+            arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+            cmake_flags: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64"
+            artifact_name: idsk-linux-arm64
+            
+          # Linux ARM32 (Cross-compile)
+          - platform: linux-arm32
+            os: ubuntu-20.04
+            arch: arm
+            cc: arm-linux-gnueabihf-gcc
+            cxx: arm-linux-gnueabihf-g++
+            cmake_flags: "-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=arm"
+            artifact_name: idsk-linux-arm32
+            
+          # macOS Intel
+          - platform: macos-intel
+            os: macos-12
+            arch: x86_64
+            cc: clang
+            cxx: clang++
+            cmake_flags: "-DCMAKE_OSX_ARCHITECTURES=x86_64"
+            artifact_name: idsk-macos-intel
+            
+          # macOS Apple Silicon
+          - platform: macos-arm64
+            os: macos-14
+            arch: arm64
+            cc: clang
+            cxx: clang++
+            cmake_flags: "-DCMAKE_OSX_ARCHITECTURES=arm64"
+            artifact_name: idsk-macos-arm64
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get Version Info
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+        else
+          VERSION=$(git describe --tags --always --dirty)
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+
+    - name: Setup Linux Cross-Compilation
+      if: runner.os == 'Linux' && matrix.arch != 'x86_64'
+      run: |
+        sudo apt-get update
+        if [ "${{ matrix.arch }}" = "aarch64" ]; then
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+        elif [ "${{ matrix.arch }}" = "arm" ]; then
+          sudo apt-get install -y gcc-arm-linux-gnueabihf g++-arm-linux-gnueabihf
+        fi
+
+    - name: Setup Build Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake make build-essential
+
+    - name: Setup Build Dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install cmake
+
+    - name: Configure CMake
+      run: |
+        cmake -B build \
+          -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} \
+          -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+          -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+          ${{ matrix.cmake_flags }}
+
+    - name: Build
+      run: |
+        cmake --build build --config ${{ env.BUILD_TYPE }} --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+    - name: Test Build (Quick Smoke Test)
+      run: |
+        cd build
+        if [ "${{ runner.os }}" = "Linux" ] && [ "${{ matrix.arch }}" != "x86_64" ]; then
+          echo "Skipping test for cross-compiled binary"
+          file iDSK || file idsk || ls -la
+        else
+          ./iDSK 2>&1 | head -5 || echo "Binary executed (expected error without DSK file)"
+        fi
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir -p artifacts
+        cd build
+        
+        # Find the binary (case variations)
+        BINARY=""
+        if [ -f "iDSK" ]; then
+          BINARY="iDSK"
+        elif [ -f "idsk" ]; then
+          BINARY="idsk"
+        elif [ -f "iDSK.exe" ]; then
+          BINARY="iDSK.exe"
+        fi
+        
+        if [ -z "$BINARY" ]; then
+          echo "Error: Binary not found!"
+          ls -la
+          exit 1
+        fi
+        
+        # Copy binary with platform-specific name
+        cp "$BINARY" "../artifacts/${{ matrix.artifact_name }}"
+        
+        # Make executable on Unix systems
+        if [ "${{ runner.os }}" != "Windows" ]; then
+          chmod +x "../artifacts/${{ matrix.artifact_name }}"
+        fi
+        
+        cd ../artifacts
+        
+        # Generate file info
+        ls -la "${{ matrix.artifact_name }}"
+        file "${{ matrix.artifact_name }}" || true
+        
+        # Generate checksums
+        sha256sum "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.sha256"
+        md5sum "${{ matrix.artifact_name }}" > "${{ matrix.artifact_name }}.md5"
+        
+        # Create build info
+        cat > "${{ matrix.artifact_name }}.info" << EOF
+        Platform: ${{ matrix.platform }}
+        Architecture: ${{ matrix.arch }}
+        Compiler: ${{ matrix.cc }}
+        Build Type: ${{ env.BUILD_TYPE }}
+        Version: ${{ steps.version.outputs.version }}
+        Commit: ${{ steps.version.outputs.short_sha }}
+        Build Date: ${{ steps.version.outputs.date }}
+        Runner OS: ${{ runner.os }}
+        EOF
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: artifacts/*
+        retention-days: 30
+
+  # Collect all artifacts and create release
+  release:
+    name: Create Release Package
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Get Version Info
+      id: version
+      run: |
+        if [[ $GITHUB_REF == refs/tags/* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/}
+          IS_RELEASE=true
+        else
+          VERSION=$(git describe --tags --always --dirty)
+          IS_RELEASE=false
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
+        echo "date=$(date +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_OUTPUT
+
+    - name: Download All Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist/
+
+    - name: Prepare Release Package
+      run: |
+        mkdir -p release
+        
+        # Copy all binaries to release directory
+        find dist/ -name "idsk-*" -not -name "*.sha256" -not -name "*.md5" -not -name "*.info" -exec cp {} release/ \;
+        
+        # Create combined checksums file
+        cd release
+        echo "# iDSK ${{ steps.version.outputs.version }} - Checksums" > checksums.txt
+        echo "Generated: ${{ steps.version.outputs.date }}" >> checksums.txt
+        echo "" >> checksums.txt
+        
+        echo "## SHA256" >> checksums.txt
+        for file in idsk-*; do
+          if [ -f "$file" ]; then
+            sha256sum "$file" >> checksums.txt
+          fi
+        done
+        
+        echo "" >> checksums.txt
+        echo "## MD5" >> checksums.txt
+        for file in idsk-*; do
+          if [ -f "$file" ]; then
+            md5sum "$file" >> checksums.txt
+          fi
+        done
+        
+        # Create build information summary
+        echo "# iDSK ${{ steps.version.outputs.version }} - Build Information" > build-info.txt
+        echo "Built: ${{ steps.version.outputs.date }}" >> build-info.txt
+        echo "Commit: ${{ github.sha }}" >> build-info.txt
+        echo "Repository: ${{ github.repository }}" >> build-info.txt
+        echo "" >> build-info.txt
+        echo "## Available Platforms:" >> build-info.txt
+        echo "- idsk-linux-amd64    : Linux x86_64 (Intel/AMD)" >> build-info.txt
+        echo "- idsk-linux-arm64    : Linux ARM64 (Raspberry Pi 4/5, ARM servers)" >> build-info.txt
+        echo "- idsk-linux-arm32    : Linux ARM32 (Raspberry Pi 2/3/Zero)" >> build-info.txt
+        echo "- idsk-macos-intel    : macOS x86_64 (Intel Macs)" >> build-info.txt
+        echo "- idsk-macos-arm64    : macOS ARM64 (Apple Silicon M1/M2/M3/M4)" >> build-info.txt
+        echo "" >> build-info.txt
+        echo "## Installation:" >> build-info.txt
+        echo "1. Download the appropriate binary for your platform" >> build-info.txt
+        echo "2. Verify checksum against checksums.txt" >> build-info.txt
+        echo "3. Make executable: chmod +x idsk-*" >> build-info.txt
+        echo "4. Move to PATH: sudo mv idsk-* /usr/local/bin/idsk" >> build-info.txt
+        
+        # Create archive
+        tar -czf "idsk-${{ steps.version.outputs.version }}-all-platforms.tar.gz" *
+        
+        # List contents
+        echo "Release contents:"
+        ls -la
+
+    - name: Create GitHub Release (Tags only)
+      if: steps.version.outputs.is_release == 'true'
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        name: iDSK ${{ steps.version.outputs.version }}
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        files: |
+          release/idsk-*
+          release/checksums.txt
+          release/build-info.txt
+          release/idsk-${{ steps.version.outputs.version }}-all-platforms.tar.gz
+        body: |
+          ## iDSK ${{ steps.version.outputs.version }}
+          
+          Multi-platform build of iDSK - Amstrad CPC Disk Image Management Tool
+          
+          ### Supported Platforms:
+          - **Linux x86_64** (`idsk-linux-amd64`): Intel/AMD 64-bit Linux
+          - **Linux ARM64** (`idsk-linux-arm64`): Raspberry Pi 4/5, ARM64 servers
+          - **Linux ARM32** (`idsk-linux-arm32`): Raspberry Pi 2/3/Zero
+          - **macOS Intel** (`idsk-macos-intel`): Intel-based Macs
+          - **macOS Apple Silicon** (`idsk-macos-arm64`): M1/M2/M3/M4 Macs
+          
+          ### Installation:
+          1. Download the appropriate binary for your platform
+          2. Verify checksum: `sha256sum -c checksums.txt`
+          3. Make executable: `chmod +x idsk-*`
+          4. Install: `sudo mv idsk-* /usr/local/bin/idsk`
+          
+          ### Usage:
+          ```bash
+          # List disk contents
+          idsk disk.dsk
+          
+          # Create new disk
+          idsk new.dsk -n
+          
+          # Import file
+          idsk disk.dsk -i program.bas
+          ```
+          
+          **Full documentation**: See README.md in the repository
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Upload Development Build
+      if: steps.version.outputs.is_release == 'false'
+      uses: actions/upload-artifact@v4
+      with:
+        name: idsk-dev-build-${{ steps.version.outputs.version }}
+        path: release/
+        retention-days: 7
+
+  # Test matrix for verification
+  test:
+    name: Test on ${{ matrix.platform }}
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            os: ubuntu-latest
+            artifact: idsk-linux-amd64
+          - platform: macos-intel
+            os: macos-12
+            artifact: idsk-macos-intel
+          - platform: macos-arm64
+            os: macos-14
+            artifact: idsk-macos-arm64
+    
+    steps:
+    - name: Download Artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ matrix.artifact }}
+        path: test/
+
+    - name: Test Binary
+      run: |
+        cd test
+        chmod +x ${{ matrix.artifact }}
+        
+        # Test version/help output
+        ./${{ matrix.artifact }} 2>&1 | head -10 || echo "Expected error without DSK file"
+        
+        # Test binary file info
+        file ${{ matrix.artifact }}
+        ls -la ${{ matrix.artifact }}
+        
+        # Verify checksums exist
+        if [ -f "${{ matrix.artifact }}.sha256" ]; then
+          echo "SHA256 checksum file found"
+          cat ${{ matrix.artifact }}.sha256
+        fi

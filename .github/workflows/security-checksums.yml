@@ -1,0 +1,350 @@
+name: Security and Checksum Validation
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+  schedule:
+    # Run security checks weekly on Sunday at 3 AM UTC
+    - cron: '0 3 * * 0'
+
+jobs:
+  security-scan:
+    name: Security Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Security Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake cppcheck clang-tools
+
+    - name: Static Security Analysis
+      run: |
+        # Run cppcheck with security focus
+        cppcheck --enable=all --force --inconclusive \
+                 --output-file=cppcheck-security.txt \
+                 --xml --xml-version=2 \
+                 src/ 2>&1 || true
+        
+        # Check for common security issues
+        echo "=== Security Analysis Results ==="
+        if grep -E "(buffer|overflow|underflow|bounds)" cppcheck-security.txt; then
+          echo "⚠️ Potential buffer issues detected"
+        fi
+        
+        if grep -E "(null|pointer)" cppcheck-security.txt; then
+          echo "⚠️ Potential pointer issues detected"
+        fi
+        
+        if grep -E "(memory|leak)" cppcheck-security.txt; then
+          echo "⚠️ Potential memory issues detected"
+        fi
+        
+        cat cppcheck-security.txt
+
+    - name: Clang Static Analyzer
+      run: |
+        mkdir build-analyze && cd build-analyze
+        
+        # Use clang static analyzer
+        scan-build cmake -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ..
+        scan-build --status-bugs cmake --build .
+
+    - name: Check for Hardcoded Secrets
+      run: |
+        # Check for potential hardcoded credentials or keys
+        echo "Scanning for potential secrets..."
+        
+        # Check for common patterns (adjust regex as needed)
+        if grep -r -E "(password|secret|key|token).*=" src/ --include="*.cpp" --include="*.h"; then
+          echo "⚠️ Potential hardcoded secrets found"
+        else
+          echo "✅ No obvious hardcoded secrets detected"
+        fi
+
+    - name: Upload Security Report
+      uses: actions/upload-artifact@v4
+      with:
+        name: security-analysis-report
+        path: |
+          cppcheck-security.txt
+          build-analyze/
+        retention-days: 30
+
+  checksum-validation:
+    name: Checksum Validation and Signing
+    needs: security-scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Checksum Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake xxd
+
+    - name: Build for Checksum Testing
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+        cmake --build .
+
+    - name: Generate Comprehensive Checksums
+      run: |
+        cd build
+        
+        # Create checksums directory
+        mkdir -p checksums
+        
+        # Multiple checksum algorithms
+        echo "=== Generating Multiple Checksums ==="
+        
+        # SHA family
+        sha1sum iDSK > checksums/iDSK.sha1
+        sha256sum iDSK > checksums/iDSK.sha256
+        sha512sum iDSK > checksums/iDSK.sha512
+        
+        # MD5 (for compatibility)
+        md5sum iDSK > checksums/iDSK.md5
+        
+        # CRC32
+        crc32 iDSK > checksums/iDSK.crc32 2>/dev/null || echo "CRC32 not available"
+        
+        # Binary hash (for verification)
+        xxd iDSK | sha256sum > checksums/iDSK.binary.sha256
+        
+        echo "=== Checksum Summary ==="
+        cat checksums/*
+        
+        # Create master checksum file
+        cat > checksums/CHECKSUMS.txt << EOF
+        # iDSK Binary Checksums
+        # Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+        # Platform: $(uname -m)
+        # Compiler: $(gcc --version | head -n1)
+        
+        ## SHA-1
+        $(cat checksums/iDSK.sha1)
+        
+        ## SHA-256
+        $(cat checksums/iDSK.sha256)
+        
+        ## SHA-512
+        $(cat checksums/iDSK.sha512)
+        
+        ## MD5
+        $(cat checksums/iDSK.md5)
+        
+        ## Verification Instructions
+        # Verify SHA-256: sha256sum -c iDSK.sha256
+        # Verify MD5: md5sum -c iDSK.md5
+        # Verify all: sha256sum -c CHECKSUMS.txt (SHA-256 line only)
+        EOF
+
+    - name: Validate Checksums
+      run: |
+        cd build
+        
+        echo "=== Validating Generated Checksums ==="
+        
+        # Verify each checksum file
+        sha1sum -c checksums/iDSK.sha1
+        sha256sum -c checksums/iDSK.sha256
+        sha512sum -c checksums/iDSK.sha512
+        md5sum -c checksums/iDSK.md5
+        
+        echo "✅ All checksums validated successfully"
+
+    - name: Binary Analysis
+      run: |
+        cd build
+        
+        echo "=== Binary Analysis ==="
+        
+        # File information
+        file iDSK
+        ls -la iDSK
+        
+        # Size analysis
+        SIZE=$(stat -c%s iDSK)
+        echo "Binary size: $SIZE bytes"
+        
+        # Basic strings analysis (look for version info)
+        strings iDSK | grep -E "(version|iDSK|IDSK)" | head -10 || true
+        
+        # Check for debugging symbols
+        if objdump -h iDSK | grep -q debug; then
+          echo "⚠️ Debug symbols present"
+        else
+          echo "✅ No debug symbols (optimized build)"
+        fi
+        
+        # Security features check (Linux)
+        if command -v checksec >/dev/null 2>&1; then
+          checksec --file=iDSK
+        elif command -v hardening-check >/dev/null 2>&1; then
+          hardening-check iDSK
+        else
+          echo "Security features check tools not available"
+        fi
+
+    - name: Upload Checksum Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: checksums-and-analysis
+        path: build/checksums/
+        retention-days: 90
+
+  reproducible-build:
+    name: Reproducible Build Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: First Build
+      run: |
+        mkdir build1 && cd build1
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+        cmake --build .
+        sha256sum iDSK > ../build1.sha256
+
+    - name: Clean Environment
+      run: |
+        # Wait a moment and clean
+        sleep 2
+        rm -rf build1
+
+    - name: Second Build
+      run: |
+        mkdir build2 && cd build2
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+        cmake --build .
+        sha256sum iDSK > ../build2.sha256
+
+    - name: Compare Builds
+      run: |
+        echo "=== Reproducible Build Test ==="
+        echo "Build 1 checksum:"
+        cat build1.sha256
+        echo "Build 2 checksum:"
+        cat build2.sha256
+        
+        if diff build1.sha256 build2.sha256; then
+          echo "✅ Builds are reproducible"
+        else
+          echo "⚠️ Builds are not reproducible"
+          echo "This may be due to timestamps or other non-deterministic factors"
+        fi
+
+  license-compliance:
+    name: License and Compliance Check
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Check License Files
+      run: |
+        echo "=== License Compliance Check ==="
+        
+        # Check for license files
+        if [ -f "LICENSE" ] || [ -f "COPYING" ] || [ -f "LICENSE.md" ]; then
+          echo "✅ License file found"
+          [ -f "LICENSE" ] && echo "LICENSE found"
+          [ -f "COPYING" ] && echo "COPYING found"
+          [ -f "LICENSE.md" ] && echo "LICENSE.md found"
+        else
+          echo "⚠️ No license file found"
+        fi
+        
+        # Check for copyright notices in source files
+        echo "Checking copyright notices in source files..."
+        find src/ -name "*.cpp" -o -name "*.h" | while read file; do
+          if grep -i "copyright\|©" "$file" >/dev/null; then
+            echo "✅ Copyright notice in $file"
+          else
+            echo "⚠️ No copyright notice in $file"
+          fi
+        done
+
+    - name: Check Dependencies
+      run: |
+        echo "=== Dependency Analysis ==="
+        
+        # Check CMakeLists.txt for external dependencies
+        if grep -E "(find_package|target_link_libraries)" CMakeLists.txt; then
+          echo "External dependencies found:"
+          grep -E "(find_package|target_link_libraries)" CMakeLists.txt
+        else
+          echo "✅ No external dependencies detected"
+        fi
+        
+        # Check for bundled libraries
+        if find . -name "*.a" -o -name "*.so" -o -name "*.dll" | grep -v build; then
+          echo "⚠️ Bundled libraries found"
+        else
+          echo "✅ No bundled libraries detected"
+        fi
+
+  release-readiness:
+    name: Release Readiness Check
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Version Consistency Check
+      run: |
+        echo "=== Version Consistency Check ==="
+        
+        # Extract version from tag
+        TAG_VERSION=${GITHUB_REF#refs/tags/}
+        echo "Tag version: $TAG_VERSION"
+        
+        # Check version in source code
+        if grep -r "$TAG_VERSION" src/ --include="*.h" --include="*.cpp"; then
+          echo "✅ Version found in source code"
+        else
+          echo "⚠️ Version not found in source code"
+        fi
+        
+        # Check version in README
+        if grep "$TAG_VERSION" README.md; then
+          echo "✅ Version found in README"
+        else
+          echo "⚠️ Version not found in README"
+        fi
+
+    - name: Changelog Check
+      run: |
+        echo "=== Changelog Check ==="
+        
+        if [ -f "CHANGELOG.md" ] || [ -f "CHANGES.md" ] || [ -f "HISTORY.md" ]; then
+          echo "✅ Changelog file exists"
+        else
+          echo "⚠️ No changelog file found"
+        fi
+
+    - name: Release Notes Validation
+      run: |
+        echo "=== Release Notes Validation ==="
+        
+        # Check if there are any TODOs or FIXMEs in the code
+        if grep -r -E "(TODO|FIXME|XXX|HACK)" src/ --include="*.cpp" --include="*.h"; then
+          echo "⚠️ TODOs/FIXMEs found in source code"
+        else
+          echo "✅ No TODOs/FIXMEs in source code"
+        fi

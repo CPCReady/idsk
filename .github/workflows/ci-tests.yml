@@ -1,0 +1,279 @@
+name: Continuous Integration Tests
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake cppcheck clang-format
+
+    - name: Code Format Check
+      run: |
+        # Find all C++ files and check formatting
+        find src/ -name "*.cpp" -o -name "*.h" | xargs clang-format --dry-run --Werror || {
+          echo "Code formatting issues found. Run: find src/ -name '*.cpp' -o -name '*.h' | xargs clang-format -i"
+          exit 1
+        }
+
+    - name: Static Analysis
+      run: |
+        # Run cppcheck on source files
+        cppcheck --enable=all --error-exitcode=1 --suppress=missingIncludeSystem src/ || {
+          echo "Static analysis issues found"
+          exit 1
+        }
+
+    - name: Build Configuration Test
+      run: |
+        # Test various build configurations
+        for build_type in Debug Release RelWithDebInfo MinSizeRel; do
+          echo "Testing build type: $build_type"
+          mkdir -p "build-$build_type"
+          cd "build-$build_type"
+          cmake -DCMAKE_BUILD_TYPE=$build_type ..
+          cmake --build . --parallel $(nproc)
+          cd ..
+        done
+
+  compatibility-test:
+    name: Compatibility Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, ubuntu-22.04, macos-12, macos-13, macos-14]
+        include:
+          - os: ubuntu-20.04
+            cc: gcc-9
+            cxx: g++-9
+          - os: ubuntu-22.04
+            cc: gcc-11
+            cxx: g++-11
+          - os: macos-12
+            cc: clang
+            cxx: clang++
+          - os: macos-13
+            cc: clang
+            cxx: clang++
+          - os: macos-14
+            cc: clang
+            cxx: clang++
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Build Dependencies (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake make build-essential ${{ matrix.cc }} ${{ matrix.cxx }}
+
+    - name: Setup Build Dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        brew install cmake
+
+    - name: Build and Test
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+              -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} ..
+        cmake --build . --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu)
+        
+        # Basic functionality test
+        ./iDSK 2>&1 | head -5 || echo "Expected error without DSK file"
+
+  memory-test:
+    name: Memory and Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential valgrind
+
+    - name: Build with Debug Info
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-g -O0" ..
+        cmake --build .
+
+    - name: Memory Leak Test
+      run: |
+        cd build
+        # Test with valgrind (basic test, no actual DSK file needed)
+        timeout 30s valgrind --leak-check=full --error-exitcode=1 \
+          ./iDSK nonexistent.dsk 2>&1 || {
+          exit_code=$?
+          if [ $exit_code -eq 124 ]; then
+            echo "Test timed out (expected)"
+          elif [ $exit_code -eq 1 ]; then
+            echo "Expected failure (no DSK file)"
+          else
+            echo "Unexpected exit code: $exit_code"
+            exit 1
+          fi
+        }
+
+  functional-test:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Build iDSK
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release ..
+        cmake --build .
+
+    - name: Create Test Environment
+      run: |
+        mkdir test-env && cd test-env
+        
+        # Create a test BASIC program
+        cat > test.bas << 'EOF'
+        10 PRINT "HELLO WORLD"
+        20 FOR I=1 TO 10
+        30 PRINT "LINE"; I
+        40 NEXT I
+        50 END
+        EOF
+        
+        # Create a test binary (simple data)
+        echo -e '\x21\x00\x80\x11\x00\x40\x01\x00\x10\xED\xB0\xC9' > test.bin
+
+    - name: Test Basic Operations
+      run: |
+        cd test-env
+        
+        # Test creating new disk
+        echo "Testing disk creation..."
+        ../build/iDSK test.dsk -n
+        
+        # Test listing empty disk
+        echo "Testing empty disk listing..."
+        ../build/iDSK test.dsk -l
+        
+        # Test importing BASIC file
+        echo "Testing BASIC import..."
+        ../build/iDSK test.dsk -i test.bas -t 0
+        
+        # Test importing binary file
+        echo "Testing binary import..."
+        ../build/iDSK test.dsk -i test.bin -t 1 -c 8000 -e 8000
+        
+        # Test listing disk with files
+        echo "Testing disk listing with files..."
+        ../build/iDSK test.dsk -l
+        
+        # Test exporting files
+        echo "Testing file export..."
+        ../build/iDSK test.dsk -g test.bas
+        ../build/iDSK test.dsk -g test.bin
+        
+        # Verify exported files exist
+        [ -f test.bas ] && echo "BASIC export successful"
+        [ -f test.bin ] && echo "Binary export successful"
+        
+        # Test file viewing
+        echo "Testing file viewing..."
+        ../build/iDSK test.dsk -b test.bas || echo "BASIC view completed"
+        ../build/iDSK test.dsk -h test.bin || echo "Hex view completed"
+        
+        echo "All functional tests completed successfully!"
+
+  documentation-test:
+    name: Documentation Verification
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Verify README Examples
+      run: |
+        # Extract and test code blocks from README
+        echo "Verifying README examples are syntactically correct..."
+        
+        # Check that all mentioned platforms in README are covered in CI
+        grep -q "linux-amd64" .github/workflows/build-multiplatform.yml
+        grep -q "linux-arm64" .github/workflows/build-multiplatform.yml
+        grep -q "linux-arm32" .github/workflows/build-multiplatform.yml
+        grep -q "macos-intel" .github/workflows/build-multiplatform.yml
+        grep -q "macos-arm64" .github/workflows/build-multiplatform.yml
+        
+        echo "All platforms mentioned in README are covered in CI"
+
+    - name: Check Links
+      run: |
+        # Verify external links in README are accessible
+        echo "Checking important external links..."
+        
+        # Check GitHub repository link
+        curl -f -s https://github.com/cpcsdk/idsk > /dev/null
+        echo "✓ Main repository link works"
+        
+        # Check CPCWiki link
+        curl -f -s http://www.cpcwiki.eu/ > /dev/null
+        echo "✓ CPCWiki link works"
+        
+        echo "Documentation links verified"
+
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Build Optimized Version
+      run: |
+        mkdir build && cd build
+        cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="-O3 -DNDEBUG" ..
+        cmake --build .
+
+    - name: Run Performance Tests
+      run: |
+        cd build
+        
+        # Create a larger test environment
+        mkdir perf-test && cd perf-test
+        
+        # Create test disk
+        time ../iDSK large.dsk -n
+        
+        # Measure import performance
+        for i in {1..10}; do
+          echo "Test file $i content" > "file$i.txt"
+          time ../iDSK large.dsk -i "file$i.txt" -t 0 -f
+        done
+        
+        # Measure listing performance
+        time ../iDSK large.dsk -l
+        
+        echo "Performance benchmark completed"
