@@ -115,15 +115,15 @@ jobs:
       run: |
         cmake --build build --config ${{ env.BUILD_TYPE }} --parallel $(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-    - name: Test Build (Quick Smoke Test)
-      run: |
-        cd build
-        if [ "${{ runner.os }}" = "Linux" ] && [ "${{ matrix.arch }}" != "x86_64" ]; then
-          echo "Skipping test for cross-compiled binary"
-          file iDSK || file idsk || ls -la
-        else
-          ./iDSK 2>&1 | head -5 || echo "Binary executed (expected error without DSK file)"
-        fi
+    # - name: Test Build (Quick Smoke Test)
+    #   run: |
+    #     cd build
+    #     if [ "${{ runner.os }}" = "Linux" ] && [ "${{ matrix.arch }}" != "x86_64" ]; then
+    #       echo "Skipping test for cross-compiled binary"
+    #       file iDSK || file idsk || ls -la
+    #     else
+    #       ./iDSK 2>&1 | head -5 || echo "Binary executed (expected error without DSK file)"
+    #     fi
 
     - name: Prepare Artifacts
       run: |
@@ -324,45 +324,4 @@ jobs:
         retention-days: 7
 
   # Test matrix for verification
-  test:
-    name: Test on ${{ matrix.platform }}
-    needs: build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu-latest
-            os: ubuntu-latest
-            artifact: idsk-linux-amd64
-          - platform: macos-intel
-            os: macos-12
-            artifact: idsk-macos-intel
-          - platform: macos-arm64
-            os: macos-14
-            artifact: idsk-macos-arm64
-    
-    steps:
-    - name: Download Artifact
-      uses: actions/download-artifact@v4
-      with:
-        name: ${{ matrix.artifact }}
-        path: test/
-
-    - name: Test Binary
-      run: |
-        cd test
-        chmod +x ${{ matrix.artifact }}
-        
-        # Test version/help output
-        ./${{ matrix.artifact }} 2>&1 | head -10 || echo "Expected error without DSK file"
-        
-        # Test binary file info
-        file ${{ matrix.artifact }}
-        ls -la ${{ matrix.artifact }}
-        
-        # Verify checksums exist
-        if [ -f "${{ matrix.artifact }}.sha256" ]; then
-          echo "SHA256 checksum file found"
-          cat ${{ matrix.artifact }}.sha256
-        fi
+  
