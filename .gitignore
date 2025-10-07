@@ -1,2 +1,4 @@
 build/
 dist/
+publish-release.sh
+dist/CHANGELOG.md
