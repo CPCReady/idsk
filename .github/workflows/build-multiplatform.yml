@@ -36,10 +36,31 @@ jobs:
         run: ./build_all.sh
         working-directory: ${{ github.workspace }}
 
-      # 5️⃣ Subir todos los artefactos automáticamente
-      - name: Upload all build artifacts
+      # 5️⃣ Subir artefactos individualmente
+      - name: Upload macOS ARM64
         uses: actions/upload-artifact@v4
         with:
-          name: iDSK-artifacts
-          path: dist/*.tar.gz
+          name: iDSK_macos-arm
+          path: dist/iDSK_macos-arm.tar.gz
+          if-no-files-found: error
+
+      - name: Upload macOS Intel
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDSK_macos-x86
+          path: dist/iDSK_macos-x86.tar.gz
+          if-no-files-found: error
+
+      - name: Upload Linux x86_64
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDSK_linux-x86
+          path: dist/iDSK_linux-x86.tar.gz
+          if-no-files-found: error
+
+      - name: Upload Linux ARM64
+        uses: actions/upload-artifact@v4
+        with:
+          name: iDSK_linux-arm64
+          path: dist/iDSK_linux-arm64.tar.gz
           if-no-files-found: error
