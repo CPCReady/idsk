@@ -560,4 +560,4 @@ All scripts are located in the `scripts/` directory and include built-in help:
 ---
 
 **iDSK v0.20-CPCReady** - Professional Amstrad CPC disk image management  
-*Part of the CPCSDK toolkit - https://github.com/cpcsdk*
+*Part of the CPCSDK toolchain - https://github.com/cpcsdk*
