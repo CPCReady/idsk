@@ -15,3 +15,8 @@ scripts/*
 .vscode/
 .idea/
 *.iml
+build-all.sh
+build_all.sh
+test-formula.sh
+test-brew.sh
+update-formula.sh
