@@ -1165,6 +1165,32 @@ void DSK::RenameFile( int item , char *NewName) {
 std::string DSK::ReadDskDir( void ) {
 	StDirEntry TabDir[ 64 ];
 	string catalogue;
+	
+	// Helper function to format table cells with exact width
+	auto formatCell = [](const string& content, int width, char align = 'l') -> string {
+		string result = content;
+		if (result.length() > width) {
+			result = result.substr(0, width);
+		}
+		
+		int padding = width - result.length();
+		if (align == 'c') { // center
+			int leftPad = padding / 2;
+			int rightPad = padding - leftPad;
+			result = string(leftPad, ' ') + result + string(rightPad, ' ');
+		} else if (align == 'r') { // right
+			result = string(padding, ' ') + result;
+		} else { // left (default)
+			result = result + string(padding, ' ');
+		}
+		return result;
+	};
+	
+	// Add table header
+	catalogue += "┌──────────────┬────────┬──────────┬──────────┬────────┐\n";
+	catalogue += "│     File     │  Size  │   Load   │   Exec   │  User  │\n";
+	catalogue += "├──────────────┼────────┼──────────┼──────────┼────────┤\n";
+	
 	for ( int i = 0; i < 64; i++ ) {
 		memcpy( &TabDir[ i ]
 				, GetInfoDirEntry( i )
@@ -1193,8 +1219,6 @@ std::string DSK::ReadDskDir( void ) {
 					Nom[ j ] = '?' ;
 			}
 
-			catalogue += Nom;
-			catalogue += " "; 
 			//
 			// Calculate file size based on number of blocks
 			//
@@ -1205,9 +1229,119 @@ std::string DSK::ReadDskDir( void ) {
 				p++;
 			} while( TabDir[ p + i ].NumPage && ( p + i ) < 64  );
             string size = GetTaille( ( t + 7 ) >> 3  );
-            catalogue+= size + "\n";
-
+            
+            // Try to get AMSDOS header information (load and execution addresses)
+            string loadAddr = "-";
+            string execAddr = "-";
+            if (TabDir[i].Blocks[0] != 0) {
+                unsigned char *firstBlock = ReadBloc(TabDir[i].Blocks[0]);
+                if (firstBlock && CheckAmsdos(firstBlock)) {
+                    StAmsdos *header = (StAmsdos*)firstBlock;
+                    if (isBigEndian()) {
+                        header = StAmsdosEndian(header);
+                    }
+                    char loadBuf[10], execBuf[10];
+                    snprintf(loadBuf, 10, "&%04X", header->Adress);
+                    snprintf(execBuf, 10, "&%04X", header->EntryAdress);
+                    loadAddr = loadBuf;
+                    execAddr = execBuf;
+                }
+            }
+            
+            // Format the table row with perfect alignment
+            string fileCol = formatCell(Nom, 12, 'l');
+            string sizeCol = formatCell(size, 6, 'r');
+            string loadCol = formatCell(loadAddr, 8, 'c');
+            string execCol = formatCell(execAddr, 8, 'c');
+            string userCol = formatCell(to_string(TabDir[i].User), 6, 'c');
+            
+            catalogue += "│ " + fileCol + " │ " + sizeCol + " │ " + loadCol + " │ " + execCol + " │ " + userCol + " │\n";
 		}
 	}
+	
+	// Add separator row before footer with disk space info (continuous line)
+	catalogue += "├──────────────────────────────────────────────────────┤\n";
+	
+	// Get free space and format it in a single cell spanning all columns
+	string freeSpaceText = to_string(GetFreeSpace()) + "K free";
+	string spacingInfo = formatCell(freeSpaceText, 54, 'c');
+	catalogue += "│" + spacingInfo + "│\n";
+	
+	// Add table footer with simple bottom border
+	catalogue += "└──────────────────────────────────────────────────────┘\n";
+	return catalogue;
+}
+
+std::string DSK::ReadDskDirSimple( void ) {
+	StDirEntry TabDir[ 64 ];
+	string catalogue;
+	
+	for ( int i = 0; i < 64; i++ ) {
+		memcpy( &TabDir[ i ]
+				, GetInfoDirEntry( i )
+				, sizeof( StDirEntry )
+			  );
+	}
+	// Trier les fichiers
+	for ( int i = 0; i < 64; i++ ) {
+		//
+		// Afficher les fichiers non effac�s
+		//
+		if ( TabDir[ i ].User != USER_DELETED && ! TabDir[ i ].NumPage ) {
+			char Nom[ 13 ];
+			memcpy( Nom, TabDir[ i ].Nom, 8 );
+			memcpy( &Nom[ 9 ], TabDir[ i ].Ext, 3 );
+			Nom[ 8 ] = '.';
+			Nom[ 12 ] = 0;
+			//
+			// Masquer les bits d'attributs
+			//
+			for ( int j = 0; j < 12; j++ )
+			{
+				Nom[ j ] &= 0x7F;
+
+				if ( ! isprint( Nom[ j ] ) ) 
+					Nom[ j ] = '?' ;
+			}
+
+			//
+			// Calculate file size based on number of blocks
+			//
+			int p = 0, t = 0;
+			do {
+				if ( TabDir[ p + i ].User == TabDir[ i ].User )
+					t += TabDir[ p + i ].NbPages;
+				p++;
+			} while( TabDir[ p + i ].NumPage && ( p + i ) < 64  );
+            string size = GetTaille( ( t + 7 ) >> 3  );
+            
+            // Try to get AMSDOS header information (load and execution addresses)
+            string loadAddr = "-";
+            string execAddr = "-";
+            if (TabDir[i].Blocks[0] != 0) {
+                unsigned char *firstBlock = ReadBloc(TabDir[i].Blocks[0]);
+                if (firstBlock && CheckAmsdos(firstBlock)) {
+                    StAmsdos *header = (StAmsdos*)firstBlock;
+                    if (isBigEndian()) {
+                        header = StAmsdosEndian(header);
+                    }
+                    char loadBuf[10], execBuf[10];
+                    snprintf(loadBuf, 10, "&%04X", header->Adress);
+                    snprintf(execBuf, 10, "&%04X", header->EntryAdress);
+                    loadAddr = loadBuf;
+                    execAddr = execBuf;
+                }
+            }
+            
+            // Format as simple columns with consistent spacing
+            char line[100];
+            snprintf(line, 100, "%-12s %6s  %-8s %-8s User %d\n", 
+                     Nom, size.c_str(), loadAddr.c_str(), execAddr.c_str(), TabDir[i].User);
+            catalogue += line;
+		}
+	}
+	
+	// Add free space info
+	catalogue += "\n" + to_string(GetFreeSpace()) + "K free\n";
 	return catalogue;
 }

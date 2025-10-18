@@ -22,12 +22,12 @@ int main(int argc, char **argv)
 		ModeDisaFile, ModeListBasic,
 		ModeListDams, ModeListHex,
 		ModeGetFile, ModeNewDsk, Force_Overwrite,
-		Read_only, System_file, Split_lines, ModeListAscii, NoOptionSet;
+		Read_only, System_file, Split_lines, ModeListAscii, ModeListSimple, NoOptionSet;
 
 	ModeListDsk = ModeImportFile = ModeListAscii =
 		ModeRemoveFile = ModeDisaFile =
 			ModeListBasic = ModeListDams = ModeListHex = ModeNewDsk =
-				ModeGetFile = IsDskLoc = IsDskSet = Force_Overwrite = Read_only = System_file =  false;
+				ModeGetFile = IsDskLoc = IsDskSet = Force_Overwrite = Read_only = System_file = ModeListSimple = false;
 	NoOptionSet = true;			
 
 	string DskFile, AmsdosFile;
@@ -50,6 +50,7 @@ int main(int argc, char **argv)
 			IsDskSet = true;
 
 		opts >> OptionPresent('l', "list", ModeListDsk)
+			>> OptionPresent(0, "ls", ModeListSimple)
 
 			>> OptionPresent('i', "import", ModeImportFile) >> Option('i', "import", AmsdosFileList)
 
@@ -89,7 +90,7 @@ int main(int argc, char **argv)
 	else
 		; // DSK file name removed for cleaner output
 
-	if (ModeListBasic || ModeListHex || ModeListDams || ModeDisaFile || ModeListAscii)
+	if (ModeListBasic || ModeListHex || ModeListDams || ModeDisaFile || ModeListAscii || ModeListSimple)
 	{
 		NoOptionSet = false;
 		if (!MyDsk.ReadDsk(DskFile))
@@ -254,7 +255,7 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	if (ModeListDsk || NoOptionSet)
+	if (ModeListDsk || ModeListSimple || NoOptionSet)
 	{ // read Dsk
 		if (!MyDsk.ReadDsk(DskFile))
 		{
@@ -267,9 +268,12 @@ int main(int argc, char **argv)
 			exit(EXIT_FAILURE);
 		}
 		cout << endl;
-		cout << MyDsk.ReadDskDir();
+		if (ModeListSimple) {
+			cout << MyDsk.ReadDskDirSimple();
+		} else {
+			cout << MyDsk.ReadDskDir();
+		}
 		cout << endl;
-		cout << MyDsk.GetFreeSpace() << "K free" << endl;
 	}
 	
 	return (EXIT_SUCCESS);
@@ -288,6 +292,7 @@ void help(void)
 	cout << "\t" << PROGNAME << " <DSKfile> [OPTIONS] [files to process]" << endl;
 	cout << "OPTIONS :                              EXAMPLE" << endl;
 	cout << "-l : List disk catalog                 iDSK floppy.dsk -l (default option is no option is set)" << endl;
+	cout << "--ls : List files in simple columns    iDSK floppy.dsk --ls" << endl;
 	cout << "-g : export ('Get') file               iDSK floppy.dsk -g myprog.bas" << endl;
 	cout << "-r : Remove file                       iDSK floppy.dsk -r myprog.bas" << endl;
 	cout << "-n : create New dsk file               iDSK floppy2.dsk -n" << endl;

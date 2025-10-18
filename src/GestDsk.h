@@ -170,6 +170,7 @@ public:
 	void FixEndianTrack( CPCEMUEnt * Infos, int t, int NbSect );
 	void RenameFile( int item , char *NewName);
 	std::string ReadDskDir(void);
+	std::string ReadDskDirSimple(void);
 	int GetFreeSpace( void );
 	
 };

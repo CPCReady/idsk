@@ -1,6 +1,6 @@
 #ifndef __MAIN_CPP__
 #define __MAIN_CPP__
-#define VERSION "0.20.1-CPCReady"
+#define VERSION "0.22-CPCReady"
 #define PROGNAME "iDSK"
 char Nom[256];
 char Msg[128];
