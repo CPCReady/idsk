@@ -127,34 +127,24 @@ void Basic( BYTE * BufFile, char * Listing, bool IsBasic, bool CrLf )
 
     * Listing = 0;
     Token = GetByte( BufFile, 0, Deprotect );
+    int NumLigne = 0;  // Declare here for debug
     for ( ;; )
         {
         	//cout << "Listing : " <<Listing << endl;
         if ( IsBasic )
             {
-            // Check if this is a tokenized BASIC file or ASCII BASIC file
-            // In ASCII BASIC files, we don't need to read length and line number as binary
+            // Read the length of the line (2 bytes)
             int lg = GetWord( BufFile, Pos, Deprotect );
+            Pos += 2;
             
-            // If the first two bytes look like a reasonable length, treat as tokenized
-            // Otherwise, treat as ASCII and start reading directly
-            if ( lg > 0 && lg < 1000 && Pos == 0 )
-                {
-                Pos += 2;
-                if ( ! lg )
-                    break;
+            if ( ! lg )
+                break;
 
-                int NumLigne = GetWord( BufFile, Pos, Deprotect );
-                Pos += 2;
-                snprintf( Tmp, 32, "%d ", NumLigne );
-                strcat( Listing, Tmp );
-                }
-            else
-                {
-                // ASCII BASIC file - just start reading text
-                if ( GetByte( BufFile, Pos, Deprotect ) == 0 )
-                    break;
-                }
+            // Read the line number (2 bytes)
+            NumLigne = GetWord( BufFile, Pos, Deprotect );
+            Pos += 2;
+            snprintf( Tmp, 32, "%d ", NumLigne );
+            strcat( Listing, Tmp );
             }
         else
             if ( ! Token || Token == 0x1A )
@@ -167,21 +157,6 @@ void Basic( BYTE * BufFile, char * Listing, bool IsBasic, bool CrLf )
             Token = GetByte( BufFile, Pos++, Deprotect );
             if ( ! IsBasic && Token == 0x1A )
                 break;
-
-            // For ASCII BASIC files, treat newline (10) or carriage return (13) as end of line
-            if ( IsBasic && (Token == 10 || Token == 13) )
-                {
-                // If we found \r, check if the next character is \n and skip it
-                if ( Token == 13 )
-                    {
-                    BYTE nextToken = GetByte( BufFile, Pos, Deprotect );
-                    if ( nextToken == 10 )
-                        {
-                        Pos++; // Skip the \n after \r
-                        }
-                    }
-                break;
-                }
 
             if ( DansChaine || ! IsBasic )
                 {
@@ -201,8 +176,16 @@ void Basic( BYTE * BufFile, char * Listing, bool IsBasic, bool CrLf )
                        )
                         Listing[ strlen( Listing ) - 1 ] = 0;
 
+                    int idx = Token & 0x7F;
+                    // DEBUG
+                    if (NumLigne == 20 && Token == 0xA1) {
+                        fprintf(stderr, "DEBUG: Token=0x%02X, idx=%d, keyword='%s'\n", 
+                                Token, idx, MotsClefs[idx]);
+                        fprintf(stderr, "DEBUG: MotsClefs[32]='%s', MotsClefs[33]='%s', MotsClefs[34]='%s'\n",
+                                MotsClefs[32], MotsClefs[33], MotsClefs[34]);
+                    }
                     strcat( Listing
-                          , MotsClefs[ Token & 0x7F ]
+                          , MotsClefs[ idx ]
                           );
                     }
                 else
@@ -386,11 +369,11 @@ void Basic( BYTE * BufFile, char * Listing, bool IsBasic, bool CrLf )
         StartLigne = strlen( Listing );
         }
     // Conversion des caractères accentués si nécessaire
-
-      for ( int i = strlen( Listing); i--; )
+    // Also convert non-printable characters to spaces for better readability
+    for ( int i = strlen( Listing); i--; )
         {
         	//cout << i << " ";
         
-            if ( ! isprint(Listing[ i ]) &&  Listing[ i ] != '\n' && Listing[ i ] != '\r'  ) Listing[ i ] = '?';  
+            if ( ! isprint(Listing[ i ]) &&  Listing[ i ] != '\n' && Listing[ i ] != '\r'  ) Listing[ i ] = ' ';  
         }
 }

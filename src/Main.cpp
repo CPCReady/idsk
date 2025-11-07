@@ -22,9 +22,9 @@ int main(int argc, char **argv)
 		ModeDisaFile, ModeListBasic,
 		ModeListDams, ModeListHex,
 		ModeGetFile, ModeNewDsk, Force_Overwrite,
-		Read_only, System_file, Split_lines, ModeListAscii, ModeListSimple, NoOptionSet;
+		Read_only, System_file, Split_lines, ModeListSimple, NoOptionSet;
 
-	ModeListDsk = ModeImportFile = ModeListAscii =
+	ModeListDsk = ModeImportFile =
 		ModeRemoveFile = ModeDisaFile =
 			ModeListBasic = ModeListDams = ModeListHex = ModeNewDsk =
 				ModeGetFile = IsDskLoc = IsDskSet = Force_Overwrite = Read_only = System_file = ModeListSimple = false;
@@ -58,15 +58,12 @@ int main(int argc, char **argv)
 
 			>> OptionPresent('n', "new", ModeNewDsk)
 
-			>> OptionPresent('z', "disassemble", ModeDisaFile) >> Option('z', "disassemble", AmsdosFileList)
 
-			>> OptionPresent('a', "ascii", ModeListAscii) >> Option('a', "ascii", AmsdosFileList)
+		>> OptionPresent('z', "disassemble", ModeDisaFile) >> Option('z', "disassemble", AmsdosFileList)
 
-			>> OptionPresent('b', "basic", ModeListBasic) >> Option('b', "basic", AmsdosFileList)
+		>> OptionPresent('b', "basic", ModeListBasic) >> Option('b', "basic", AmsdosFileList)
 
-			>> OptionPresent('d', "dams", ModeListDams) >> Option('d', "dams", AmsdosFileList)
-
-			>> OptionPresent('h', "hex", ModeListHex) >> Option('h', "hex", AmsdosFileList)
+		>> OptionPresent('d', "dams", ModeListDams) >> Option('d', "dams", AmsdosFileList)			>> OptionPresent('h', "hex", ModeListHex) >> Option('h', "hex", AmsdosFileList)
 
 			>> std::hex >> Option('e', "exec", exeAdress) >> Option('c', "load", loadAdress) >> std::dec >> Option('t', "type", AmsdosType)
 
@@ -90,7 +87,7 @@ int main(int argc, char **argv)
 	else
 		; // DSK file name removed for cleaner output
 
-	if (ModeListBasic || ModeListHex || ModeListDams || ModeDisaFile || ModeListAscii || ModeListSimple)
+	if (ModeListBasic || ModeListHex || ModeListDams || ModeDisaFile || ModeListSimple)
 	{
 		NoOptionSet = false;
 		if (!MyDsk.ReadDsk(DskFile))
@@ -126,8 +123,6 @@ int main(int argc, char **argv)
 			}
 			else if (ModeDisaFile)
 				cout << ViewDesass() << endl;
-			else if (ModeListAscii)
-				cout << ViewAscii() << endl;
 		}
 	}
 
@@ -297,14 +292,16 @@ void help(void)
 	cout << "-r : Remove file                       iDSK floppy.dsk -r myprog.bas" << endl;
 	cout << "-n : create New dsk file               iDSK floppy2.dsk -n" << endl;
 	cout << "-z : disassemble a binary file         iDSK floppy.dsk -z myprog.bin" << endl;
-	cout << "-b : list a Basic file                 iDSK floppy.dsk -b myprog.bas" << endl
+	cout << "-b : list a Basic file (auto-detects ASCII/tokenized)" << endl
+		 << "                                       iDSK floppy.dsk -b myprog.bas" << endl
 		 << "-p : split lines after 80 char             ... -p" << endl;
-	cout << "-a : list a Ascii file                 iDSK floppy.dsk -a myprog.txt" << endl;
 	cout << "-d : list a Dams file                  iDSK floppy.dsk -d myprog.dms" << endl;
 	cout << "-h : list a binary file as Hexadecimal iDSK floppy.dsk -h myprog.bin" << endl;
 	cout << "-i : Import file                       iDSK floppy.dsk -i myprog.bas" << endl
-		 << " -t : fileType (0=ASCII/1=BINARY/2=raw)     ... -t 1" << endl
-		 << "      ASCII mode converts Unix (\\n) to DOS (\\r\\n) for .bas files (any case)" << endl;
+		 << " -t : fileType (0=ASCII/1=BINARY/2=raw)  ... -t 1" << endl
+		 << "      0=ASCII - converts Unix (\\n) to DOS (\\r\\n) for .bas files" << endl
+		 << "      1=BINARY - adds AMSDOS header with load/exec addresses" << endl
+		 << "      2=RAW - no header, raw binary data" << endl;
 	cout << " -e : hex Execute address of file           ... -e C000 -t 1" << endl;
 	cout << " -c : hex loading address of file           ... -e C000 -c 4000 -t 1" << endl;
 	cout << " -f : Force overwriting if file exists      ... -f" << endl
