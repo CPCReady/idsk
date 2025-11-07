@@ -172,6 +172,7 @@ public:
 	std::string ReadDskDir(void);
 	std::string ReadDskDirSimple(void);
 	int GetFreeSpace( void );
+	std::string GetFileTypeStr(int Indice);
 	
 };
 

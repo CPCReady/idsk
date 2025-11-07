@@ -22,12 +22,12 @@ int main(int argc, char **argv)
 		ModeDisaFile, ModeListBasic,
 		ModeListDams, ModeListHex,
 		ModeGetFile, ModeNewDsk, Force_Overwrite,
-		Read_only, System_file, Split_lines, ModeListSimple, NoOptionSet;
+		Read_only, System_file, Split_lines, ModeListSimple, ModeShowType, NoOptionSet;
 
 	ModeListDsk = ModeImportFile =
 		ModeRemoveFile = ModeDisaFile =
 			ModeListBasic = ModeListDams = ModeListHex = ModeNewDsk =
-				ModeGetFile = IsDskLoc = IsDskSet = Force_Overwrite = Read_only = System_file = ModeListSimple = false;
+				ModeGetFile = IsDskLoc = IsDskSet = Force_Overwrite = Read_only = System_file = ModeListSimple = ModeShowType = false;
 	NoOptionSet = true;			
 
 	string DskFile, AmsdosFile;
@@ -69,6 +69,8 @@ int main(int argc, char **argv)
 
 			>> OptionPresent('g', "get", ModeGetFile) >> Option('g', "get", AmsdosFileList)
 
+			>> OptionPresent('y', "filetype", ModeShowType) >> Option('y', "filetype", AmsdosFileList)
+
 			>> OptionPresent('f', "force", Force_Overwrite) >> OptionPresent('o', "write-protect", Read_only) >> OptionPresent('s', "system", System_file) >> OptionPresent('p', "split-lines", Split_lines) >> Option('u', "user", UserNumber);
 
 		if (opts.options_remain())
@@ -86,6 +88,34 @@ int main(int argc, char **argv)
 	}
 	else
 		; // DSK file name removed for cleaner output
+
+	if (ModeShowType)
+	{
+		NoOptionSet = false;
+		if (!MyDsk.ReadDsk(DskFile))
+		{
+			cerr << "Error reading file (" << DskFile << ")." << endl;
+			exit(EXIT_FAILURE);
+		}
+		if (!MyDsk.CheckDsk())
+		{
+			cerr << "Unsupported image file (" << DskFile << ")." << endl;
+			exit(EXIT_FAILURE);
+		}
+		int Indice;
+		for (vector<string>::iterator iter = AmsdosFileList.begin(); iter != AmsdosFileList.end(); iter++)
+		{
+			char *amsdosF = GetNomAmsdos(iter->c_str());
+			if ((Indice = MyDsk.FileIsIn(amsdosF)) < 0)
+			{
+				cerr << "Error: File " << amsdosF << " not found." << endl;
+				exit(EXIT_FAILURE);
+			}
+			
+			string fileType = MyDsk.GetFileTypeStr(Indice);
+			cout << *iter << ": " << fileType << endl;
+		}
+	}
 
 	if (ModeListBasic || ModeListHex || ModeListDams || ModeDisaFile || ModeListSimple)
 	{
@@ -291,6 +321,8 @@ void help(void)
 	cout << "-g : export ('Get') file               iDSK floppy.dsk -g myprog.bas" << endl;
 	cout << "-r : Remove file                       iDSK floppy.dsk -r myprog.bas" << endl;
 	cout << "-n : create New dsk file               iDSK floppy2.dsk -n" << endl;
+	cout << "-y : show file type (BASIC/ASCII/BINARY/RAW)" << endl
+		 << "                                       iDSK floppy.dsk -y myprog.bas" << endl;
 	cout << "-z : disassemble a binary file         iDSK floppy.dsk -z myprog.bin" << endl;
 	cout << "-b : list a Basic file (auto-detects ASCII/tokenized)" << endl
 		 << "                                       iDSK floppy.dsk -b myprog.bas" << endl

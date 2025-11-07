@@ -1346,3 +1346,57 @@ std::string DSK::ReadDskDirSimple( void ) {
 	catalogue += "\n" + to_string(GetFreeSpace()) + "K free\n";
 	return catalogue;
 }
+
+//
+// Get file type as string: BASIC-TOKENIZED, ASCII, BINARY, or RAW
+//
+string DSK::GetFileTypeStr(int Indice) {
+	if (Indice < 0 || Indice >= 64)
+		return "UNKNOWN";
+	
+	StDirEntry *TabDir = (StDirEntry *)GetRawData(0);
+	StDirEntry Dir = TabDir[Indice];
+	
+	if (Dir.User == USER_DELETED)
+		return "DELETED";
+	
+	// Use OnViewFic to load the file - it handles AMSDOS headers correctly
+	// and sets global variables AdresseCharg and AdresseExec
+	if (!OnViewFic(Indice))
+		return "ERROR";
+	
+	// Check if file has AMSDOS header (AdresseCharg and AdresseExec are non-zero or set)
+	// BASIC files have Load=0x0170, Exec=0x0000
+	if (AdresseCharg == 0x0170 && AdresseExec == 0x0000) {
+		// Check if tokenized by looking at first byte
+		if (TailleFic > 0 && BufFile[0] >= 0x01 && BufFile[0] <= 0x1F) {
+			return "BASIC-TOKENIZED";
+		}
+		return "BASIC-ASCII";
+	}
+	
+	// If has valid load/exec addresses, it's BINARY
+	if (AdresseCharg != 0 || AdresseExec != 0) {
+		return "BINARY";
+	}
+	
+	// No AMSDOS header - check extension to guess type
+	char ext[4];
+	memcpy(ext, Dir.Ext, 3);
+	ext[3] = 0;
+	
+	// Trim spaces
+	for (int i = 2; i >= 0; i--) {
+		if (ext[i] == ' ') ext[i] = 0;
+		else break;
+	}
+	
+	// Convert to uppercase for comparison
+	for (int i = 0; ext[i]; i++)
+		ext[i] = toupper(ext[i]);
+	
+	if (strcmp(ext, "BAS") == 0 || strcmp(ext, "BAK") == 0)
+		return "ASCII";
+	
+	return "RAW";
+}
