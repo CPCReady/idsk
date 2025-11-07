@@ -990,6 +990,7 @@ bool DSK::PutFileInDsk(string Masque, int TypeModeImport,
 		break;
 		case MODE_RAW :
 			cout << "Using raw mode, no header\n";
+		break;
 
 	}
 

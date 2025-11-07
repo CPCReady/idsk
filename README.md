@@ -3,8 +3,8 @@
 [![L## Key Features
 
 - 📁️ **Complete File Management**: Import, export, and delete files from disk images
-- 📋 **Content Listing**: Display disk catalogs with detailed file information  
-- 🔍 **File Analysis**: View BASIC programs, disassemble Z80 code, hex dumps
+- 📋 **Enhanced Directory Listing**: Professional table format or compact column view with load/exec/user info
+- 🔍 **Smart File Analysis**: Auto-detecting BASIC viewer, Z80 disassembler, hex dumps
 - 💾 **Disk Creation**: Generate new formatted DSK images
 - ⚙️ **AMSDOS Headers**: Automatic handling of load/execution addresses
 - 🔄 **Smart Text Conversion**: Automatic Unix to DOS line ending conversion for BASIC files (.bas)
@@ -17,7 +17,7 @@
 
 ## 🆕 Recent Improvements (v0.20-CPCReady)
 
-This version includes significant enhancements focused on internationalization and user experience:
+This version includes significant enhancements focused on internationalization, user experience, and BASIC file handling:
 
 ### 🌍 **Complete Internationalization**
 - **English Interface**: All French text converted to English for global accessibility
@@ -27,52 +27,59 @@ This version includes significant enhancements focused on internationalization a
 - **Standardized Units**: French `"Ko"` changed to universal `"K"` format
 - **Professional Consistency**: Aligned with international development standards
 
-### 📊 **Enhanced Output Format**
-- **Clean Listing**: Removed unnecessary header lines (`DSK : filename`, separator lines)
-- **Compact Display**: File sizes now show as `"1 K"` instead of `"1 KB"`
-- **Free Space Indicator**: Live disk usage with format `"173K free"`
+### 📊 **Enhanced Directory Listing**
+- **Professional Table Format**: Unicode box-drawing characters with proper alignment
+- **Detailed File Information**: 
+  - Load address (hexadecimal format `&XXXX`)
+  - Execution address (hexadecimal format `&XXXX`)
+  - User number (0-15)
+  - File size in compact `K` format
+- **Simple List Mode**: New `--ls` option for compact column-based output
+- **Smart Formatting**: Dashes (`-`) for files without load/exec addresses
+- **Live Disk Usage**: Real-time free space indicator
 
-### 🎯 **User Experience Improvements**
-- **Streamlined Output**: Focus on essential information only
-- **Better Readability**: Clear visual hierarchy in file listings
-- **Real-time Disk Usage**: Immediate feedback on available space
-- **Cleaner Interface**: Removed redundant visual elements
+### 🎯 **Enhanced BASIC File Support**
+- **Smart Auto-Detection**: `-b` option now automatically detects file format
+  - Tokenized BASIC files (CPC native format)
+  - ASCII BASIC files (text format)
+  - No need for separate `-a` option anymore
+- **Unified Interface**: Single command handles both formats intelligently
+- **Automatic Conversion**: Unix to DOS line ending conversion for `.bas` files
 
 ### 📁 **Example Output Comparison**
 
-**Before:**
+**Professional Table Format:**
 ```
-DSK : test.dsk
-GAME    .BAS 0
-LOADER  .BIN 0
-------------------------------------
-```
-
-**After:**
-```
-
-GAME    .BAS 1 K
-LOADER  .BIN 1 K
-
-176K free
+┌──────────────┬────────┬──────────┬──────────┬────────┐
+│     File     │  Size  │   Load   │   Exec   │  User  │
+├──────────────┼────────┼──────────┼──────────┼────────┤
+│ GAME    .BAS │    2 K │  &0170   │  &0000   │   0    │
+│ LOADER  .BIN │    3 K │  &8000   │  &8000   │   0    │
+│ DATA    .DAT │    1 K │    -     │    -     │   0    │
+├──────────────────────────────────────────────────────┤
+│                      173K free                       │
+└──────────────────────────────────────────────────────┘
 ```
 
-These improvements make iDSK more accessible to international developers while providing a cleaner, more informative user interface that focuses on essential disk management information.
+**Simple List Mode (`--ls`):**
+```
+GAME    .BAS    2 K     &0170   &0000    0   
+LOADER  .BIN    3 K     &8000   &8000    0   
+DATA    .DAT    1 K       -       -      0   
 
-## Key Features
+173K free
+```
 
-- �️ **Complete File Management**: Import, export, and delete files from disk images
-- � **Content Listing**: Display disk catalogs with detailed file information  
-- 🔍 **File Analysis**: View BASIC programs, disassemble Z80 code, hex dumps
-- � **Disk Creation**: Generate new formatted DSK images
-- ⚙️ **AMSDOS Headers**: Automatic handling of load/execution addresses
-- 🌐 **Cross-Platform**: Native support for x86, AMD64, ARM, and Apple Silicon
+These improvements make iDSK more accessible to international developers while providing comprehensive disk information in an elegant, readable format.
 
 ## Quick Start
 
 ```bash
-# List disk contents (default operation)
+# List disk contents (default operation with professional table)
 iDSK disk.dsk
+
+# List disk contents in simple column format
+iDSK disk.dsk --ls
 
 # Create a new disk image
 iDSK newdisk.dsk -n
@@ -83,7 +90,7 @@ iDSK disk.dsk -i program.bas
 # Export a file from disk  
 iDSK disk.dsk -g program.bas
 
-# View BASIC program (detokenized)
+# View BASIC program (auto-detects format)
 iDSK disk.dsk -b program.bas
 ```
 
@@ -322,11 +329,11 @@ iDSK <dsk_file> [OPTIONS] [files...]
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `-b <files>` | **View BASIC program** (detokenized) | `iDSK disk.dsk -b game.bas` |
-| `-a <files>` | **View ASCII file** | `iDSK disk.dsk -a readme.txt` |
+| `-b <files>` | **View BASIC program** (auto-detects ASCII/tokenized) | `iDSK disk.dsk -b game.bas` |
 | `-h <files>` | **View file as hexadecimal** | `iDSK disk.dsk -h data.bin` |
 | `-z <files>` | **Disassemble binary** (Z80) | `iDSK disk.dsk -z code.bin` |
 | `-d <files>` | **View DAMS file** | `iDSK disk.dsk -d source.dms` |
+| `--ls` | **Simple column listing** (compact format) | `iDSK disk.dsk --ls` |
 
 ### Import Modifiers
 
@@ -385,7 +392,7 @@ iDSK target.dsk -i program.bas -t 0 -f
 ### Content Analysis
 
 ```bash
-# View BASIC program source code
+# View BASIC program (auto-detects ASCII or tokenized format)
 iDSK game.dsk -b menu.bas
 
 # View binary file in hexadecimal
@@ -394,8 +401,8 @@ iDSK game.dsk -h sprites.bin
 # Disassemble Z80 machine code
 iDSK game.dsk -z routine.bin
 
-# View text file contents
-iDSK data.dsk -a readme.txt
+# Simple column listing
+iDSK game.dsk --ls
 ```
 
 ### Advanced Import Examples
